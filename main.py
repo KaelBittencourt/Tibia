@@ -1,63 +1,89 @@
 import pyautogui as pg
-import keyboard
-
-REGION_BATTLE = (1746, 486, 171, 44)
-REGION_LOOT = (779, 335, 188, 197)
-
-POSITION_MANA_FULL = (914, 40)
-COLOR_MANA = (0, 56, 116)
-
-POSITION_LIFE = (15, 47)
-COLOR_GREEN_LIFE = (0, 174, 0)
-
-def check_battle():
-    return pg.locateOnScreen('imgs/region_battle.PNG', region=REGION_BATTLE)
+import actions
+import constants
+import json
+from pynput.keyboard import Listener
+from pynput import keyboard
+import threading
 
 def kill_monster():
-    while True:
-        keyboard.wait('h')
-        
-        is_battle = check_battle()
-        if is_battle == None:
-            print('entrei aqui')
-            pg.press('space')
-            
-            # Verifica se ainda estiver com o monstro vivo ele não passa para o proximo target
-            while pg.locateOnScreen('imgs/red_target.png', confidence=0.7, region=REGION_BATTLE) != None: 
-                print('esperando o mostro morrer')
-            print('procurando outro monstro')
-            # ---------------------------------------
-        print(is_battle)
-#kill_monster()
+    while actions.check_battle() == None:
+        print('Matando os Monstros')
+        if event_th.is_set():
+            return
+        pg.press('space')
+        while pg.locateOnScreen('imgs/red_target.png', confidence=0.7, region=constants.REGION_BATTLE) != None:
+            if event_th.is_set():
+                return
+            print('esperando o mostro morrer')
+        print('procurando outro monstro')
 
 
 def get_loot():
-    loot = pg.locateAllOnScreen('imgs/monster_dead.png', confidence=0.9, region=REGION_LOOT)
+    loot = pg.locateAllOnScreen('imgs/monster_dead.png', confidence=0.9, region=constants.REGION_LOOT)
     for box in loot:
         x, y = pg.center(box)
         pg.moveTo(x, y)
         pg.click(button="right")
+
+def go_to_flag(path, wait):
+    flag = pg.locateOnScreen(path, confidence=0.8, region=constants.REGION_MAP)
+    if flag:
+        x, y = pg.center(flag)
+        if event_th.is_set():
+            return
+        pg.moveTo(x, y)
+        pg.click()
+        pg.sleep(wait)
+
+def check_player_position():
+    return pg.locateOnScreen('imgs/point_player.png', confidence=0.8, region=constants.REGION_MAP)
     
+def run():
+    with open(f'{constants.FOLDER_NAME}/infos.json', 'r') as file:
+        data = json.loads(file.read())
+    for item in data:
+        if event_th.is_set():
+            return
+        kill_monster()
+        if event_th.is_set():
+            return
+        pg.sleep(1)
+        get_loot()
+        if event_th.is_set():
+            return
+        go_to_flag(item['path'], item['wait'])
+        if event_th.is_set():
+            return
+        if check_player_position():
+            kill_monster()
+            if event_th.is_set():
+                return
+            pg.sleep(1)
+            get_loot()
+            if event_th.is_set():
+                return
+            go_to_flag(item['path'], item['wait'])
+        actions.eat_food()
+        actions.hole_down(item['down_hole'])
+        if event_th.is_set():
+            return        
+        actions.hole_up(item['up_hole'], f'{constants.FOLDER_NAME}/anchor_floor_2.png', 430, 0)
+        actions.hole_up(item['up_hole'], f'{constants.FOLDER_NAME}/anchor_floor_3.png', 130, 130)
 
+def key_code(key):
+    print('key ->', key)
+    if key == keyboard.Key.esc:
+        return False
+    if key == keyboard.Key.delete:
+        th_run.start()
+        
+global event_th
+event_th = threading.Event()
+th_run = threading.Thread(target=run)
 
-def check_status(name, delay, x, y, rgb, button_name):
-    print(f'checando {name}...')
-    pg.sleep(delay)
-    if pg.pixelMatchesColor(x, y, rgb):
-        pg.press(button_name)
-
-
-
-def eat_food():
-    pg.press('f12')
-    print('Comendo...')
-
-
-
-#pg.displayMousePosition()
-
-# check_status('mana', 5, *POSITION_MANA_FULL, COLOR_MANA, 'F3')
+with Listener(on_press=key_code) as listener:
+    listener.join()
 
 keyboard.wait('h')
-check_status('life', 1, *POSITION_LIFE, COLOR_GREEN_LIFE, 'F3')
-
+run()
